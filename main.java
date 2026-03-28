@@ -32,35 +32,38 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
 
-String PLUGIN_TZ = "Asia/Shanghai";
-int MAX_RECORD_FILE_LINES = 6000;
-long MAX_RECORD_FILE_BYTES = 1024L * 1024L * 2L;
-long MEDIA_TEXT_DELAY_MS = 1500L;
+class PluginConfig {
+    static final String PLUGIN_TZ = "Asia/Shanghai";
+    static final int MAX_RECORD_FILE_LINES = 6000;
+    static final long MAX_RECORD_FILE_BYTES = 1024L * 1024L * 2L;
+    static final long MEDIA_TEXT_DELAY_MS = 1500L;
+
+    static final String CMD_HINT =
+        "微信词云\n" +
+        "先在聊天中发送 ,wcenable 激活\n" +
+        "命令示例：\n" +
+        ",wc\n" +
+        ",wc -t -3d\n" +
+        ",wc -t d0326-0327 -f 测试 -f 哈哈\n" +
+        ",wc -t t1200-1300\n\n" +
+        "支持前缀：,wc  ，wc  /wc\n" +
+        "支持激活：,wcenable / ,wcdisable / ,wcclean / ,wcstatus\n" +
+        "支持配置入口：,wcm  ，wcm  /wcm";
+
+    static final Set<String> STOP_WORDS = new HashSet<String>(Arrays.asList(
+        "的", "了", "是", "我", "你", "他", "她", "它", "们", "啊", "呀", "哦", "嗯", "哈",
+        "哈哈", "嘿", "吗", "呢", "吧", "啦", "喔", "欸", "额", "就是", "这个", "那个", "然后",
+        "因为", "所以", "如果", "但是", "而且", "已经", "还是", "我们", "你们", "他们", "自己",
+        "一下", "一个", "没有", "什么", "怎么", "为什么", "真的", "可以", "不是", "不会", "不是",
+        "and", "the", "for", "you", "that", "this", "with", "are", "was", "have", "just",
+        "from", "your", "they", "what", "when", "where", "will", "would", "then", "than"
+    ));
+}
+
 Object WRITE_LOCK = new Object();
 List<Runnable> WRITE_QUEUE = new LinkedList<Runnable>();
 Thread WRITE_WORKER = null;
 boolean WRITE_WORKER_RUNNING = false;
-
-String CMD_HINT =
-    "微信词云\n" +
-    "先在聊天中发送 ,wcenable 激活\n" +
-    "命令示例：\n" +
-    ",wc\n" +
-    ",wc -t -3d\n" +
-    ",wc -t d0326-0327 -f 测试 -f 哈哈\n" +
-    ",wc -t t1200-1300\n\n" +
-    "支持前缀：,wc  ，wc  /wc\n" +
-    "支持激活：,wcenable / ,wcdisable / ,wcclean / ,wcstatus\n" +
-    "支持配置入口：,wcm  ，wcm  /wcm";
-
-Set<String> STOP_WORDS = new HashSet<String>(Arrays.asList(
-    "的", "了", "是", "我", "你", "他", "她", "它", "们", "啊", "呀", "哦", "嗯", "哈",
-    "哈哈", "嘿", "吗", "呢", "吧", "啦", "喔", "欸", "额", "就是", "这个", "那个", "然后",
-    "因为", "所以", "如果", "但是", "而且", "已经", "还是", "我们", "你们", "他们", "自己",
-    "一下", "一个", "没有", "什么", "怎么", "为什么", "真的", "可以", "不是", "不会", "不是",
-    "and", "the", "for", "you", "that", "this", "with", "are", "was", "have", "just",
-    "from", "your", "they", "what", "when", "where", "will", "would", "then", "than"
-));
 
 class ParsedCommand {
     String action;
@@ -195,7 +198,7 @@ void handleParsedCommand(String talker, ParsedCommand command, boolean triggerBy
     }
 
     if (command.error != null) {
-        sendText(talker, command.error + "\n\n" + CMD_HINT);
+        sendText(talker, command.error + "\n\n" + PluginConfig.CMD_HINT);
         return;
     }
 
@@ -558,7 +561,7 @@ Long parseDateTimeToken(String token, long now) {
 }
 
 Calendar newCalendar(long millis) {
-    Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(PLUGIN_TZ));
+    Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone(PluginConfig.PLUGIN_TZ));
     calendar.setLenient(false);
     calendar.setTimeInMillis(millis);
     return calendar;
@@ -605,7 +608,7 @@ void trimRecordFileIfNeeded(File file) {
         if (file == null || !file.exists()) {
             return;
         }
-        if (file.length() <= MAX_RECORD_FILE_BYTES) {
+        if (file.length() <= PluginConfig.MAX_RECORD_FILE_BYTES) {
             return;
         }
 
@@ -620,7 +623,7 @@ void trimRecordFileIfNeeded(File file) {
             reader.close();
         }
 
-        int start = lines.size() > MAX_RECORD_FILE_LINES ? (lines.size() - MAX_RECORD_FILE_LINES) : 0;
+        int start = lines.size() > PluginConfig.MAX_RECORD_FILE_LINES ? (lines.size() - PluginConfig.MAX_RECORD_FILE_LINES) : 0;
         BufferedWriter writer = new BufferedWriter(new FileWriter(file, false));
         try {
             for (int i = start; i < lines.size(); i++) {
@@ -709,21 +712,27 @@ void generateWordCloudForTalker(String talker, long startTime, long endTime, Lis
 
         List<WordStat> topWords = topWordStats(wordCountMap, 50);
         File output = renderWordCloudImage(talker, topWords, records.size(), startTime, endTime);
-        sendWordCloudOutput(talker, output);
-        waitForMediaLikelyUploaded(output);
-        sendText(talker, buildSummaryText(talker, topWords, records, filters, startTime, endTime));
+        List<File> cleanupFiles = new ArrayList<File>();
+        try {
+            sendWordCloudOutput(talker, output, cleanupFiles);
+            waitForMediaLikelyUploaded(output);
+            sendText(talker, buildSummaryText(talker, topWords, records, filters, startTime, endTime));
+        } finally {
+            cleanupGeneratedFiles(cleanupFiles);
+        }
     } catch (Exception e) {
         log("generateWordCloudForTalker error: " + e.toString());
         sendText(talker, "生成词云失败，请查看日志");
     }
 }
 
-void sendWordCloudOutput(String talker, File output) {
+void sendWordCloudOutput(String talker, File output, List<File> cleanupFiles) {
     if (output == null || !output.exists()) {
         throw new RuntimeException("word cloud output file missing");
     }
 
     log("word cloud output path: " + output.getAbsolutePath() + ", size=" + output.length());
+    cleanupFiles.add(output);
     try {
         sendImage(talker, output.getAbsolutePath());
         log("sendImage png success");
@@ -744,6 +753,7 @@ void sendWordCloudOutput(String talker, File output) {
     try {
         jpgFile = convertPngToJpg(output);
         log("jpg output path: " + jpgFile.getAbsolutePath() + ", size=" + jpgFile.length());
+        cleanupFiles.add(jpgFile);
     } catch (Exception jpgError) {
         log("convert jpg failed: " + jpgError.toString());
     }
@@ -778,7 +788,28 @@ void sendWordCloudOutput(String talker, File output) {
 
 void waitForMediaLikelyUploaded(File output) {
     try {
-        Thread.sleep(MEDIA_TEXT_DELAY_MS);
+        Thread.sleep(PluginConfig.MEDIA_TEXT_DELAY_MS);
+    } catch (Exception ignore) {
+    }
+}
+
+void cleanupGeneratedFiles(List<File> files) {
+    if (files == null) {
+        return;
+    }
+    for (File file : files) {
+        deleteQuietly(file);
+    }
+}
+
+void deleteQuietly(File file) {
+    if (file == null) {
+        return;
+    }
+    try {
+        if (file.exists()) {
+            file.delete();
+        }
     } catch (Exception ignore) {
     }
 }
@@ -794,7 +825,14 @@ File convertPngToJpg(File pngFile) throws Exception {
     canvas.drawColor(Color.WHITE);
     canvas.drawBitmap(source, 0f, 0f, null);
 
-    File jpgFile = new File(cacheDir, "wordcloud_" + System.currentTimeMillis() + ".jpg");
+    String pngName = pngFile.getName();
+    String jpgName;
+    if (pngName.endsWith(".png")) {
+        jpgName = pngName.substring(0, pngName.length() - 4) + ".jpg";
+    } else {
+        jpgName = pngName + ".jpg";
+    }
+    File jpgFile = new File(cacheDir, jpgName);
     FileOutputStream fos = new FileOutputStream(jpgFile);
     try {
         jpgBitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos);
@@ -899,7 +937,7 @@ boolean isFilteredWord(String word, List<String> filters) {
     if (word == null || word.isEmpty()) {
         return true;
     }
-    if (STOP_WORDS.contains(word)) {
+    if (PluginConfig.STOP_WORDS.contains(word)) {
         return true;
     }
     for (int i = 0; i < filters.size(); i++) {
@@ -962,7 +1000,7 @@ List<String> tokenizeWords(String content) {
 void flushAsciiBuffer(StringBuilder ascii, List<String> result) {
     String word = ascii.toString().trim();
     ascii.setLength(0);
-    if (word.length() >= 2 && !STOP_WORDS.contains(word)) {
+    if (word.length() >= 2 && !PluginConfig.STOP_WORDS.contains(word)) {
         result.add(word);
     }
 }
@@ -975,7 +1013,7 @@ void flushCjkBuffer(StringBuilder cjk, List<String> result) {
     }
 
     if (text.length() <= 4) {
-        if (!STOP_WORDS.contains(text)) {
+        if (!PluginConfig.STOP_WORDS.contains(text)) {
             result.add(text);
         }
         return;
@@ -983,7 +1021,7 @@ void flushCjkBuffer(StringBuilder cjk, List<String> result) {
 
     for (int i = 0; i < text.length() - 1; i++) {
         String biGram = text.substring(i, i + 2);
-        if (!STOP_WORDS.contains(biGram)) {
+        if (!PluginConfig.STOP_WORDS.contains(biGram)) {
             result.add(biGram);
         }
     }
@@ -1058,7 +1096,7 @@ File renderWordCloudImage(String talker, List<WordStat> topWords, int messageCou
         placeWord(canvas, drawWord, placed, random, width, height);
     }
 
-    File output = new File(cacheDir, "wordcloud_" + System.currentTimeMillis() + ".png");
+    File output = new File(cacheDir, buildWordCloudFileName(".png"));
     FileOutputStream fos = new FileOutputStream(output);
     try {
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
@@ -1258,19 +1296,25 @@ String safeLoginAlias() {
 
 String formatDay(long time) {
     SimpleDateFormat sdf = new SimpleDateFormat("MM-dd", Locale.getDefault());
-    sdf.setTimeZone(TimeZone.getTimeZone(PLUGIN_TZ));
+    sdf.setTimeZone(TimeZone.getTimeZone(PluginConfig.PLUGIN_TZ));
     return sdf.format(new Date(time));
 }
 
 String formatClock(long time) {
     SimpleDateFormat sdf = new SimpleDateFormat("HH:mm", Locale.getDefault());
-    sdf.setTimeZone(TimeZone.getTimeZone(PLUGIN_TZ));
+    sdf.setTimeZone(TimeZone.getTimeZone(PluginConfig.PLUGIN_TZ));
     return sdf.format(new Date(time));
+}
+
+String buildWordCloudFileName(String extension) {
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmssSSS", Locale.getDefault());
+    sdf.setTimeZone(TimeZone.getTimeZone(PluginConfig.PLUGIN_TZ));
+    return "wordcloud_" + sdf.format(new Date()) + extension;
 }
 
 String formatTime(long time) {
     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault());
-    sdf.setTimeZone(TimeZone.getTimeZone(PLUGIN_TZ));
+    sdf.setTimeZone(TimeZone.getTimeZone(PluginConfig.PLUGIN_TZ));
     return sdf.format(new Date(time));
 }
 
