@@ -35,7 +35,7 @@ import java.util.TimeZone;
 String PLUGIN_TZ = "Asia/Shanghai";
 int MAX_RECORD_FILE_LINES = 6000;
 long MAX_RECORD_FILE_BYTES = 1024L * 1024L * 2L;
-long MEDIA_TEXT_DELAY_MS = 4500L;
+long MEDIA_TEXT_DELAY_MS = 1500L;
 Object WRITE_LOCK = new Object();
 List<Runnable> WRITE_QUEUE = new LinkedList<Runnable>();
 Thread WRITE_WORKER = null;
@@ -43,12 +43,14 @@ boolean WRITE_WORKER_RUNNING = false;
 
 String CMD_HINT =
     "微信词云\n" +
+    "先在聊天中发送 ,wcenable 激活\n" +
     "命令示例：\n" +
     ",wc\n" +
     ",wc -t -3d\n" +
     ",wc -t d0326-0327 -f 测试 -f 哈哈\n" +
     ",wc -t t1200-1300\n\n" +
     "支持前缀：,wc  ，wc  /wc\n" +
+    "支持激活：,wcenable / ,wcdisable / ,wcclean / ,wcstatus\n" +
     "支持配置入口：,wcm  ，wcm  /wcm";
 
 Set<String> STOP_WORDS = new HashSet<String>(Arrays.asList(
@@ -140,7 +142,7 @@ void onHandleMsg(Object msgInfoBean) {
             return;
         }
 
-        if (!content.trim().isEmpty()) {
+        if (isChatEnabled(talker) && !content.trim().isEmpty()) {
             enqueuePersistRecord(talker, sender, msg.getCreateTime(), isSelf, content);
         }
     } catch (Exception e) {
@@ -149,6 +151,41 @@ void onHandleMsg(Object msgInfoBean) {
 }
 
 void handleParsedCommand(String talker, ParsedCommand command, boolean triggerBySelf, String triggerSender) {
+    if ("enable".equals(command.action)) {
+        if (!triggerBySelf) {
+            return;
+        }
+        setChatEnabled(talker, true);
+        toast("已启用当前聊天的词云服务");
+        return;
+    }
+
+    if ("disable".equals(command.action)) {
+        if (!triggerBySelf) {
+            return;
+        }
+        setChatEnabled(talker, false);
+        toast("已停用当前聊天的词云服务");
+        return;
+    }
+
+    if ("clean".equals(command.action)) {
+        if (!triggerBySelf) {
+            return;
+        }
+        clearChatCache(talker);
+        toast("已清空当前聊天的词云缓存");
+        return;
+    }
+
+    if ("status".equals(command.action)) {
+        if (!triggerBySelf) {
+            return;
+        }
+        toast(isChatEnabled(talker) ? "当前聊天词云服务：已激活" : "当前聊天词云服务：未激活");
+        return;
+    }
+
     if ("config".equals(command.action)) {
         sendText(talker,
             "UI 配置暂未实现。\n" +
@@ -159,6 +196,13 @@ void handleParsedCommand(String talker, ParsedCommand command, boolean triggerBy
 
     if (command.error != null) {
         sendText(talker, command.error + "\n\n" + CMD_HINT);
+        return;
+    }
+
+    if (!isChatEnabled(talker)) {
+        if (triggerBySelf) {
+            toast("当前聊天未激活，请先发送 ,wcenable");
+        }
         return;
     }
 
@@ -245,6 +289,30 @@ ParsedCommand parseCommand(String raw) {
     String text = raw.trim();
     if (text.isEmpty()) {
         return null;
+    }
+
+    if (matchesPrefix(text, ",wcenable") || matchesPrefix(text, "，wcenable") || matchesPrefix(text, "/wcenable")) {
+        ParsedCommand command = new ParsedCommand();
+        command.action = "enable";
+        return command;
+    }
+
+    if (matchesPrefix(text, ",wcdisable") || matchesPrefix(text, "，wcdisable") || matchesPrefix(text, "/wcdisable")) {
+        ParsedCommand command = new ParsedCommand();
+        command.action = "disable";
+        return command;
+    }
+
+    if (matchesPrefix(text, ",wcclean") || matchesPrefix(text, "，wcclean") || matchesPrefix(text, "/wcclean")) {
+        ParsedCommand command = new ParsedCommand();
+        command.action = "clean";
+        return command;
+    }
+
+    if (matchesPrefix(text, ",wcstatus") || matchesPrefix(text, "，wcstatus") || matchesPrefix(text, "/wcstatus")) {
+        ParsedCommand command = new ParsedCommand();
+        command.action = "status";
+        return command;
     }
 
     if (matchesPrefix(text, ",wcm") || matchesPrefix(text, "，wcm") || matchesPrefix(text, "/wcm")) {
@@ -564,6 +632,29 @@ void trimRecordFileIfNeeded(File file) {
         }
     } catch (Exception e) {
         log("trimRecordFileIfNeeded error: " + e.toString());
+    }
+}
+
+String getEnableKey(String talker) {
+    return "wc_enabled_" + md5Hex(safeString(talker));
+}
+
+boolean isChatEnabled(String talker) {
+    return getBoolean(getEnableKey(talker), false);
+}
+
+void setChatEnabled(String talker, boolean enabled) {
+    putBoolean(getEnableKey(talker), enabled);
+}
+
+void clearChatCache(String talker) {
+    try {
+        File file = getRecordFile(talker);
+        if (file.exists()) {
+            file.delete();
+        }
+    } catch (Exception e) {
+        log("clearChatCache error: " + e.toString());
     }
 }
 

@@ -19,8 +19,47 @@
 
 1. 将zip文件解压至/Android/media/com.tencent.mm/WAuxiliary/Plugin/
 2. 在 WAuxiliary 中打开插件开关
+3. 在需要支持词云的聊天中运行命令 `,wcenable`
 
 ## 命令
+
+**激活**
+
+在需要支持词云的聊天中运行命令 可以激活
+
+```
+,wcenable
+，wcenable
+/wcenable
+```
+
+输入命令可以取消激活
+
+```
+,wcdisable
+，wcdisable
+/wcdisable
+```
+
+取消激活后可以清空该聊天的缓存
+
+```
+,wcclean
+，wcclean
+/wcclean
+```
+
+可以使用命令查看状态
+
+```
+,wcstatus
+，wcstatus
+/wcstatus
+```
+
+
+
+**触发**
 
 在输入栏输入命令，或者收到这样的消息即可直接触发
 
